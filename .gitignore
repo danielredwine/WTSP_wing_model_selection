@@ -47,3 +47,7 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# To ignore
+WTSP_wing_model_selection.Rproj
+data/

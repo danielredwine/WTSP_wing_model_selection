@@ -1,0 +1,166 @@
+---
+title: <center>White-throated Sparrow Wing Length</center>
+author: <center>Daniel Redwine</center>
+date: <center>`r Sys.Date()`</center>
+output: 
+  html_document:
+    toc: true # table of content true
+    toc_depth: 1  # up to one depth of headings, no subheader (specified by # in html)
+    number_sections: false  ## if you want number sections at each table header
+    theme: united  # many options for theme
+---
+```{r setup, include=FALSE}
+
+# Load all libraries needed
+library(ggplot2)
+library(dplyr)
+library(lme4)
+library(lmerTest)
+library(ggfortify)
+library(MuMIn)
+library(asbio)
+library(GGally)
+library(performance)
+library(patchwork)
+library(olsrr)
+library(RColorBrewer)
+```
+
+```{r adjust width of console outputs, include=FALSE}
+#many of our tables output in the console are really wide; expand limits [width] to fit them all in,
+#otherwise they wrap awkwardly
+options(width = 90)
+#https://bookdown.org/yihui/rmarkdown-cookbook/text-width.html
+
+#matrix(runif(100), ncol = 20) #test code to display adjusted width
+```
+# Modelling White-throated Sparrow wing length
+
+Different factors such as sex and morph may serve to predict White-throated Sparrow wing chord length. Here we will use model selection and information criterion to examine the best predictors of White-throated Sparrow wing chord length. 
+
+<center>
+<iframe src="https://macaulaylibrary.org/asset/155039781/embed" height="515" width="640" frameborder="0" allowfullscreen></iframe>
+</center>
+<center>
+Figure 1. Photograph of a White-throated Sparrow from Macaulay Library
+</center>
+
+```{r Load and clean dataset, echo=FALSE, message=FALSE, warning=FALSE}
+
+wtsp_data <- read.csv("../data/wtsp_data.csv") #load in dataset, .. moves up one level
+
+# Select the variables I need and clean up dataset 
+wtsp_data_clean <- wtsp_data %>%
+  filter(New.Recap == "N") %>% 
+  filter(Mass != "x") %>%
+  # Using dplyr::filter because multiple packages have a filter command
+  # Remove recaps so no repeated measures which would violate assumptions for stats
+  select(SampleID ,PCRsex, Wing, PCRMorph, Mass, Banded_Location) %>%
+  filter(PCRMorph == "WS" | PCRMorph == "TS" ) %>%
+  filter(PCRsex == "M" | PCRsex == "F" )
+  
+# Ensure that all variables are factors/numeric as appropriate
+  wtsp_data_clean$PCRsex <- as.factor(wtsp_data_clean$PCRsex)
+  wtsp_data_clean$PCRMorph <- as.factor(wtsp_data_clean$PCRMorph)
+  wtsp_data_clean$Banded_Location <- as.factor(wtsp_data_clean$Banded_Location)
+  wtsp_data_clean$Wing <- as.numeric(wtsp_data_clean$Wing)
+  wtsp_data_clean$Mass <- as.numeric(wtsp_data_clean$Mass)
+```
+# Model Multicollinearity and Assumptions
+
+```{r fitmodel to look at Variance Inflation Factor, message=FALSE, echo=FALSE, warning=FALSE}
+model_wing1 <- lm(Wing ~ PCRsex + PCRMorph + Mass + Banded_Location, data=wtsp_data_clean)
+anova (model_wing1) #construct total model, coefficients of the full model
+```
+Output of anova() for the model containing all of the predictors. 
+
+```{r multicollinearity plot, message=FALSE, warning=FALSE, echo=FALSE, fig.show = "hold", out.width = "90%", fig.align = "center", fig.cap="Figure 2. Regression plots for sex, morph, location, and mass adjusted for all other variables. Note that sex, morph and location are categorical predictors."}
+olsrr::ols_plot_added_variable(model_wing1) # regression plots adjusted for other factors
+```
+I'm unsure how sex, morph, and location are altered given that they are categorical predictors. 
+```{r check model for multicollinearity, echo=FALSE, message=FALSE, warning=FALSE}
+performance::check_collinearity(model_wing1)
+#VIF are also translated to Tolerance values, where tolerance = 1/vif
+```
+VIF values start at one. Generally a VIF of 5 or 10 indicates multicollinearity. All VIF values are close to one for this model. 
+```{r check model, echo=FALSE, message=FALSE, warning=FALSE, fig.height=8, fig.show = "hold", out.width = "90%", fig.align = "center", fig.cap="Figure 3. Assumptions for the model predicting wing chord length (mm) by sex, morph, mass, and location"}
+performance::check_model(model_wing1) # checking model assumptions
+```
+The model seems to fit assumptions. Predicted values adhere to actual values and low VIF indicates that multicollinearity is not an issue. 
+
+# Model Selection
+```{r fit dredge model, message=FALSE, warning=TRUE, echo=FALSE}
+# change na. action
+options(na.action = "na.fail") # otherwise blows up with NA values
+dredge_wing<-dredge(model_wing1)
+dredge_wing
+```
+All possible models generated with dredge(). Note that there are 16 total models and each predictor appears eight times.  
+
+```{r best subset, message=FALSE, echo=FALSE, warning=FALSE}
+# grab best supported models
+subset(dredge_wing, delta <10)
+```
+Models within 10 AICc of the top model. Note that the top two are the only models within two AICc. Most of the model weight is between the top two equivalent models. 
+
+```{r equally-competitve models, message=FALSE, warning=FALSE, echo=FALSE}
+#grab equally competitive models
+subset(dredge_wing, delta <2)
+```
+The two equivalent models within two AICc. Note that one includes banded location while the other model does not. 
+
+```{r variable weight, message=FALSE, warning=FALSE, echo=FALSE}
+# calculate variable importance weights
+sw(dredge_wing) #notice this is the global model, not just the competitive model set
+```
+Adjusted weights for each individual variable as they appear in eight out of the sixteen models. Note that sex, morph, and mass have a higher weight than location banded. 
+
+```{r Model Averaging, message=FALSE, warning=FALSE, echo=FALSE}
+# Model average using all candidate models, always use revised.var = TRUE
+model.avg(dredge_wing, revised.var = TRUE)
+```
+Average of coefficients between all models. 
+
+```{r look at the averaged coefficients, echo=FALSE, warning=FALSE, message=FALSE}
+#summary(model.avg(dredge_wash)) # if you want to average across all models, both competitive and non-competitive
+summary(model.avg(dredge_wing, subset = delta < 2)) # if you just want to look only at competitive models, which
+#is the point of model selection.
+#there is justification for looking only at the competitive models; trying to narrow things down.
+```
+Average of coefficients between only the top two models. 
+
+```{r I guess we should make a figure, echo=FALSE, message=FALSE, warning=FALSE, fig.show = "hold", out.width = "90%", fig.align = "center", fig.cap="Figure 4. Graphs of wing chord length (mm) for, sex, morph, location, and mass"}
+sex_box <- ggplot(wtsp_data_clean, aes(PCRsex, Wing, fill = PCRsex)) + 
+  geom_boxplot() +
+  theme_bw() +
+  xlab("Sex") +
+  ylab("Wing Chord (mm)") +
+  theme(legend.position  = "none") +
+  scale_fill_brewer(palette = "RdPu")
+ 
+
+morph_box <- ggplot(wtsp_data_clean, aes(PCRMorph, Wing, fill = PCRMorph)) + 
+  geom_boxplot() +
+  theme_bw() +
+  xlab("Morph") +
+  ylab("Wing Chord (mm)") +
+  theme(legend.position  = "none") +
+  scale_fill_brewer(palette = "Blues")
+
+location_box <- ggplot(wtsp_data_clean, aes(Banded_Location, Wing, fill = Banded_Location)) + 
+  geom_boxplot() +
+  theme_bw() +
+  xlab("Location") +
+  ylab("Wing Chord (mm)") +
+  theme(legend.position  = "none") +
+  scale_fill_brewer(palette = "Purples")
+
+mass_line <- ggplot(wtsp_data_clean, aes(Mass, Wing)) + 
+  geom_point() +
+  geom_smooth(method="lm") +
+  theme_bw() +
+  ylab("Wing Chord (mm)") +
+  xlab("Mass (g)")
+
+sex_box / mass_line | morph_box / location_box
+```
